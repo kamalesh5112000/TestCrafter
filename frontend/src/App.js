@@ -1,25 +1,40 @@
-import logo from './logo.svg';
-import './App.css';
+import React, { useState, useEffect } from "react";
+import { io } from "socket.io-client";
+import MainForm from "./components/MainForm";
+import RecordingPage from "./components/RecordingPage";
 
-function App() {
+const socket = io("http://localhost:5000", { autoConnect: false });
+
+const App = () => {
+  const [url, setUrl] = useState("");
+  const [userId, setUserId] = useState(null);
+  const [isRecordingPageOpen, setIsRecordingPageOpen] = useState(false);
+
+  useEffect(() => {
+    socket.connect();
+    return () => socket.disconnect();
+  }, []);
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <div className="h-screen flex justify-center items-center">
+      {!isRecordingPageOpen ? (
+        <MainForm 
+          url={url} 
+          setUrl={setUrl} 
+          setUserId={setUserId} 
+          onStartRecording={() => setIsRecordingPageOpen(true)} 
+          socket={socket} 
+        />
+      ) : (
+        <RecordingPage 
+          url={url} 
+          userId={userId} 
+          onClose={() => setIsRecordingPageOpen(false)} 
+          socket={socket} 
+        />
+      )}
     </div>
   );
-}
+};
 
 export default App;
