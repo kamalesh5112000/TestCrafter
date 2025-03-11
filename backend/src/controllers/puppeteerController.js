@@ -10,28 +10,42 @@ module.exports = (server) => {
     console.log("Client connected:", socket.id);
 
     socket.on("launchBrowser", async ({ url }) => {
-        console.log("Received launchBrowser event for URL:", url);
-        try {
-            const browser = await puppeteer.launch({
-                headless: false,
-                args: ['--disable-blink-features=AutomationControlled']
-            });
-            const page = await browser.newPage();
-            await page.goto(url, { waitUntil: "domcontentloaded" });
-    
-            const userId = socket.id;
-            activeBrowsers[userId] = { browser, page, currentURL: url, interactions: [] };
-    
-            // Send the actual URL to the frontend
-            socket.emit("browserLaunched", { userId, siteUrl: url });
-            console.log("✅ Browser launched, user should open site:", url);
-    
-            startStreaming(userId, socket);
-        } catch (error) {
-            console.error("Error launching browser:", error);
-            socket.emit("launchError", "Failed to launch browser.");
-        }
-    });
+      console.log("Received launchBrowser event for URL:", url);
+      try {
+          const browser = await puppeteer.launch({
+              headless: false,
+              args: [
+                  '--disable-blink-features=AutomationControlled',
+                  '--start-maximized' // Maximizes the window
+              ],
+              defaultViewport: null // Prevents Puppeteer from forcing a small viewport
+          });
+  
+          const page = await browser.newPage();
+  
+          // Get the real screen dimensions using evaluate()
+          const { width, height } = await page.evaluate(() => {
+              return { width: window.screen.availWidth, height: window.screen.availHeight };
+          });
+  
+          // Set viewport to match the real screen size
+          await page.setViewport({ width, height });
+  
+          await page.goto(url, { waitUntil: "domcontentloaded" });
+  
+          const userId = socket.id;
+          activeBrowsers[userId] = { browser, page, currentURL: url, interactions: [] };
+  
+          // Send the actual URL to the frontend
+          socket.emit("browserLaunched", { userId, siteUrl: url });
+          console.log("✅ Browser launched, user should open site:", url);
+  
+          startStreaming(userId, socket);
+      } catch (error) {
+          console.error("Error launching browser:", error);
+          socket.emit("launchError", "Failed to launch browser.");
+      }
+  });  
 
     async function startStreaming(userId, socket) {
       if (!activeBrowsers[userId]) return;
@@ -50,44 +64,114 @@ module.exports = (server) => {
       if (!activeBrowsers[userId]) {
         return socket.emit("recordingError", "Browser not launched.");
       }
-
+    
       try {
         const { page } = activeBrowsers[userId];
-
+    
+        // Expose function so frontend can send interactions
         await page.exposeFunction("sendInteractionToBackend", (data) => {
           console.log("📝 Interaction detected in Puppeteer:", data);
           activeBrowsers[userId].interactions.push(data);
           socket.emit("interactionRecorded", activeBrowsers[userId].interactions);
         });
-
-        await page.evaluate(() => {
-          function getXPath(element) {
-            if (element.id !== "") return `//*[@id="${element.id}"]`;
-            const parts = [];
-            while (element && element.nodeType === Node.ELEMENT_NODE) {
-              let index = 0;
-              let sibling = element.previousSibling;
-              while (sibling) {
-                if (sibling.nodeType === Node.ELEMENT_NODE && sibling.tagName === element.tagName) index++;
-                sibling = sibling.previousSibling;
+    
+        // Function to inject listeners
+        async function injectListeners() {
+          await page.evaluate(() => {
+            function getXPath(element) {
+              console.log("elemenst",element)
+              if (element.id) return `//*[@id="${element.id}"]`;
+            
+              if (element.name) return `//input[@name="${element.name}"]`;
+              if (element.placeholder) return `//input[@placeholder="${element.placeholder}"]`;
+              if (element.getAttribute("aria-label")) return `//*[@aria-label="${element.getAttribute("aria-label")}"]`;
+            
+              if (element.tagName === "BUTTON" || element.tagName === "A") {
+                let buttonText = element.innerText.trim();
+                if (buttonText.length > 0) return `//${element.tagName.toLowerCase()}[text()="${buttonText}"]`;
               }
-              parts.unshift(element.tagName + "[" + (index + 1) + "]");
-              element = element.parentNode;
+            
+              const parts = [];
+              while (element && element.nodeType === Node.ELEMENT_NODE) {
+                let index = 1;
+                let sibling = element.previousElementSibling;
+                while (sibling) {
+                  if (sibling.tagName === element.tagName) index++;
+                  sibling = sibling.previousElementSibling;
+                }
+                parts.unshift(`${element.tagName.toLowerCase()}[${index}]`);
+                element = element.parentNode;
+              }
+              return parts.length ? "/" + parts.join("/") : null;
             }
-            return parts.length ? "/" + parts.join("/") : null;
+        
+            function sendInteraction(type, event, extraData = {}) {
+              const xpath = getXPath(event.target);
+              if (!xpath) return;
+              window.sendInteractionToBackend({ type, tag: event.target.tagName, xpath, ...extraData });
+            }
+        
+            // Remove existing event listeners before adding new ones
+            document.removeEventListener("click", handleClick);
+            document.removeEventListener("input", handleInput);
+            document.removeEventListener("keydown", handleKeydown);
+            document.removeEventListener("blur", handleBlur, true);
+        
+            function handleClick(event) {
+              if (event.detail > 1) return; // Ignore extra clicks
+              sendInteraction("click", event);
+            }
+        
+            let inputState = {};
+        
+            function handleInput(event) {
+              const xpath = getXPath(event.target);
+              const newValue = event.target.value;
+              if (inputState[xpath] !== newValue) {
+                inputState[xpath] = newValue;
+              }
+            }
+        
+            function handleBlur(event) {
+              const xpath = getXPath(event.target);
+              if (inputState[xpath] !== undefined) {
+                sendInteraction("input", event, { value: inputState[xpath] });
+                delete inputState[xpath];
+              }
+            }
+        
+            function handleKeydown(event) {
+              if (event.key === "Enter") {
+                const xpath = getXPath(event.target);
+                if (inputState[xpath] !== undefined) {
+                  sendInteraction("input", event, { value: inputState[xpath] });
+                  delete inputState[xpath];
+                }
+                sendInteraction("keypress", event, { key: "Enter" });
+              }
+            }
+        
+            document.addEventListener("click", handleClick);
+            document.addEventListener("input", handleInput);
+            document.addEventListener("blur", handleBlur, true);
+            document.addEventListener("keydown", handleKeydown);
+          });
+        }
+        
+        
+        // Inject listeners initially
+        await injectListeners();
+    
+        // Listen for page navigations and reinject listeners
+        page.on("framenavigated", async (frame) => {
+          if (frame === page.mainFrame()) {
+            const newURL = frame.url();
+            console.log(`🌍 Page navigation detected! New URL: ${newURL}`);
+            await injectListeners();
           }
-
-          document.addEventListener("click", (event) => {
-            const xpath = getXPath(event.target);
-            window.sendInteractionToBackend({ type: "click", tag: event.target.tagName, xpath });
-          });
-
-          document.addEventListener("input", (event) => {
-            const xpath = getXPath(event.target);
-            window.sendInteractionToBackend({ type: "input", tag: event.target.tagName, xpath, value: event.target.value });
-          });
         });
-
+        
+    
         socket.emit("recordingStarted");
         console.log("✅ Recording started for user:", userId);
       } catch (error) {
@@ -113,46 +197,82 @@ module.exports = (server) => {
 
     socket.on("interactionFromFrontend", async ({ userId, action }) => {
       if (!activeBrowsers[userId]) {
-          return console.log("❌ No active Puppeteer session for this user.");
+        return console.log("❌ No active Puppeteer session for this user.");
       }
       
       const { page } = activeBrowsers[userId];
-  
+    
       try {
-          if (action.type === "click") {
-              console.log("🖱 Clicking:", action.xpath);
-              await page.evaluate((xpath) => {
-                  function getElementByXPath(xpath) {
-                      return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                  }
-                  const el = getElementByXPath(xpath);
-                  if (el) el.click();
-              }, action.xpath);
-          } 
-          
-          else if (action.type === "input") {
-              console.log("⌨️ Typing:", action.value, "at", action.xpath);
-              await page.evaluate(({ xpath, value }) => {
-                  function getElementByXPath(xpath) {
-                      return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                  }
-                  const el = getElementByXPath(xpath);
-                  if (el) {
-                      el.value = value;
-                      el.dispatchEvent(new Event("input", { bubbles: true }));
-                  }
-              }, action);
-          }
-  
-          // Store recorded interaction
-          activeBrowsers[userId].interactions.push(action);
-          socket.emit("interactionRecorded", activeBrowsers[userId].interactions);
-          
+        console.log("Received action:", action);
+    
+        if (action.type === "click") {
+          console.log("🖱 Clicking:", action.xpath);
+          await page.evaluate((xpath) => {
+            function getElementByXPath(xpath) {
+              return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            }
+            const el = getElementByXPath(xpath);
+            if (el) el.click();
+          }, action.xpath);
+        } 
+        
+        else if (action.type === "input") {
+          console.log("⌨️ Typing:", action.value, "at", action.xpath);
+          await page.evaluate(({ xpath, value }) => {
+            function getElementByXPath(xpath) {
+              return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            }
+            const el = getElementByXPath(xpath);
+            if (el) {
+              el.value = value;
+              el.dispatchEvent(new Event("input", { bubbles: true }));
+            }
+          }, action);
+        }
+    
+        else if (action.type === "keypress" && action.key === "Enter") {
+          console.log("🔢 Pressing Enter at:", action.xpath);
+          await page.evaluate((xpath) => {
+            function getElementByXPath(xpath) {
+              return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            }
+            const el = getElementByXPath(xpath);
+            if (el) {
+              el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+            }
+          }, action.xpath);
+        }
+    
+        else if (action.type === "scroll") {
+          console.log("📜 Scrolling to:", action.scrollX, action.scrollY);
+          await page.evaluate(({ scrollX, scrollY }) => {
+            window.scrollTo(scrollX, scrollY);
+          }, action);
+        }
+    
+    
+        else if (action.type === "right-click") {
+          console.log("🖱 Right-clicking on:", action.xpath);
+          await page.evaluate((xpath) => {
+            function getElementByXPath(xpath) {
+              return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            }
+            const el = getElementByXPath(xpath);
+            if (el) {
+              el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+            }
+          }, action.xpath);
+        }
+    
+        // Store recorded interaction
+        activeBrowsers[userId].interactions.push(action);
+        socket.emit("interactionRecorded", activeBrowsers[userId].interactions);
+        
       } catch (error) {
-          console.error("❌ Error performing action in Puppeteer:", error);
+        console.error("❌ Error performing action in Puppeteer:", error);
       }
-  });
-  
+    });
+    
 
     socket.on("closeBrowser", ({ userId }) => {
       console.log("Client requested browser close:", userId);

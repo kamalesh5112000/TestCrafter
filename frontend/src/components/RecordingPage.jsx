@@ -11,7 +11,7 @@ const RecordingPage = ({ url, onClose, userId, socket }) => {
     });
 
     socket.on("interactionRecorded", (interactionList) => {
-      console.log("📥 Received interactions:", interactionList);
+      console.log("📥 [FRONTEND] Received recorded interactions:", interactionList);
       setActions(interactionList);
     });
 
@@ -21,7 +21,6 @@ const RecordingPage = ({ url, onClose, userId, socket }) => {
     };
   }, [socket]);
 
-  // ✅ Add event listeners to the iframe for click/input events
   const addIframeListeners = () => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -29,6 +28,7 @@ const RecordingPage = ({ url, onClose, userId, socket }) => {
     iframe.onload = () => {
       try {
         const iframeDoc = iframe.contentWindow.document;
+        console.log("✅ [FRONTEND] Iframe loaded, adding event listeners...");
 
         const getXPath = (element) => {
           if (element.id) return `//*[@id="${element.id}"]`;
@@ -46,21 +46,24 @@ const RecordingPage = ({ url, onClose, userId, socket }) => {
           return `/${path.join("/")}`;
         };
 
+        // Add event listeners to the iframe's document
         iframeDoc.addEventListener("click", (event) => {
           const xpath = getXPath(event.target);
           const action = { type: "click", tag: event.target.tagName, xpath };
-          socket.emit("interactionFromFrontend", { userId, action }); // Send to backend
+          console.log("🖱 [FRONTEND] Click detected:", action);
+          socket.emit("interactionFromFrontend", { userId, action });
         });
 
         iframeDoc.addEventListener("input", (event) => {
           const xpath = getXPath(event.target);
           const action = { type: "input", tag: event.target.tagName, xpath, value: event.target.value };
-          socket.emit("interactionFromFrontend", { userId, action }); // Send to backend
+          console.log("⌨ [FRONTEND] Input detected:", action);
+          socket.emit("interactionFromFrontend", { userId, action });
         });
 
-        console.log("✅ Listeners added to iframe.");
+        console.log("🎯 [FRONTEND] Event listeners added to iframe.");
       } catch (err) {
-        console.warn("⚠️ Could not access iframe content due to CORS:", err);
+        console.warn("⚠️ [FRONTEND] Could not access iframe content due to CORS:", err);
       }
     };
   };
@@ -72,19 +75,19 @@ const RecordingPage = ({ url, onClose, userId, socket }) => {
   }, [isRecording]);
 
   const startRecording = () => {
-    console.log("▶️ Start recording...");
+    console.log("▶️ [FRONTEND] Start recording...");
     socket.emit("startRecording", { userId });
     setIsRecording(true);
   };
 
   const stopRecording = () => {
-    console.log("⏹ Stop recording...");
+    console.log("⏹ [FRONTEND] Stop recording...");
     socket.emit("stopRecording", { userId });
     setIsRecording(false);
-  };
+ };
 
   const closeBrowser = () => {
-    console.log("❌ Closing browser...");
+    console.log("❌ [FRONTEND] Closing browser...");
     socket.emit("closeBrowser", { userId });
     onClose();
   };
@@ -111,13 +114,30 @@ const RecordingPage = ({ url, onClose, userId, socket }) => {
         {/* Action List */}
         <div className="mt-4 flex-grow overflow-auto border border-gray-300 p-2 rounded bg-white">
           {actions.length > 0 ? (
-            <ul className="space-y-2">
-              {actions.map((action, index) => (
-                <li key={index} className="text-sm text-gray-700 bg-gray-200 p-2 rounded">
-                  {action.type} - {action.tag} ({action.xpath})
-                </li>
-              ))}
-            </ul>
+            <ul className="space-y-2 bg-white p-4 rounded-lg shadow-md">
+            {actions.map((action, index) => (
+              <li 
+                key={index} 
+                className="flex flex-col sm:flex-row sm:items-center justify-between border border-gray-300 p-3 rounded-lg bg-gray-100 hover:bg-gray-200 transition"
+              >
+                <div>
+                  <span className="font-semibold text-gray-900">{action.type}</span>
+                  <span className="text-gray-600 ml-2">({action.tag})</span>
+          
+                  {/* Display additional details based on action type */}
+                  {action.type === "input" && action.value && (
+                    <p className="text-sm text-blue-700 mt-1">Value: {action.value}</p>
+                  )}
+                  {action.type === "keypress" && action.key && (
+                    <p className="text-sm text-green-700 mt-1">Key: {action.key}</p>
+                  )}
+                </div>
+                <span className="text-xs text-gray-500 break-all mt-1 sm:mt-0">{action.xpath}</span>
+              </li>
+            ))}
+          </ul>
+          
+          
           ) : (
             <p className="text-gray-500 text-sm">No actions recorded yet...</p>
           )}
