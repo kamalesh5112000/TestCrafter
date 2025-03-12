@@ -62,130 +62,151 @@ module.exports = (server) => {
 
     socket.on("startRecording", async ({ userId }) => {
       if (!activeBrowsers[userId]) {
-          return socket.emit("recordingError", "Browser not launched.");
+        return socket.emit("recordingError", "Browser not launched.");
       }
-  
+    
       try {
-          const { page } = activeBrowsers[userId];
-  
-          // Expose function so frontend can send interactions
-          await page.exposeFunction("sendInteractionToBackend", (data) => {
-              console.log("📝 Interaction detected in Puppeteer:", data);
-              activeBrowsers[userId].interactions.push(data);
-              socket.emit("interactionRecorded", activeBrowsers[userId].interactions);
-          });
-  
-          // Function to inject listeners
-          async function injectListeners() {
-              await page.evaluate(() => {
-                  function getXPath(element) {
-                      if (element.id) return `//*[@id="${element.id}"]`;
-                      if (element.name) return `//input[@name="${element.name}"]`;
-                      if (element.placeholder) return `//input[@placeholder="${element.placeholder}"]`;
-                      if (element.getAttribute("aria-label")) return `//*[@aria-label="${element.getAttribute("aria-label")}"]`;
-                      if (element.tagName === "BUTTON" || element.tagName === "A") {
-                          let buttonText = element.innerText.trim();
-                          if (buttonText.length > 0) return `//${element.tagName.toLowerCase()}[text()="${buttonText}"]`;
-                      }
-                      const parts = [];
-                      while (element && element.nodeType === Node.ELEMENT_NODE) {
-                          let index = 1;
-                          let sibling = element.previousElementSibling;
-                          while (sibling) {
-                              if (sibling.tagName === element.tagName) index++;
-                              sibling = sibling.previousElementSibling;
-                          }
-                          parts.unshift(`${element.tagName.toLowerCase()}[${index}]`);
-                          element = element.parentNode;
-                      }
-                      return parts.length ? "/" + parts.join("/") : null;
-                  }
-  
-                  function sendInteraction(type, event, extraData = {}) {
-                      const xpath = getXPath(event.target);
-                      if (!xpath) return;
-                      window.sendInteractionToBackend({ type, tag: event.target.tagName, xpath, ...extraData });
-                  }
-  
-                  // Remove existing event listeners before adding new ones
-                  document.removeEventListener("click", handleClick);
-                  document.removeEventListener("input", handleInput);
-                  document.removeEventListener("keydown", handleKeydown);
-                  document.removeEventListener("blur", handleBlur, true);
-  
-                  function handleClick(event) {
-                      if (event.detail > 1) return; // Ignore extra clicks
-                      sendInteraction("click", event);
-                  }
-  
-                  let inputState = {};
-  
-                  function handleInput(event) {
-                      const xpath = getXPath(event.target);
-                      const newValue = event.target.value;
-                      if (inputState[xpath] !== newValue) {
-                          inputState[xpath] = newValue;
-                      }
-                  }
-  
-                  function handleBlur(event) {
-                      const xpath = getXPath(event.target);
-                      if (inputState[xpath] !== undefined) {
-                          sendInteraction("input", event, { value: inputState[xpath] });
-                          delete inputState[xpath];
-                      }
-                  }
-  
-                  function handleKeydown(event) {
-                      if (event.key === "Enter") {
-                          const xpath = getXPath(event.target);
-                          if (inputState[xpath] !== undefined) {
-                              sendInteraction("input", event, { value: inputState[xpath] });
-                              delete inputState[xpath];
-                          }
-                          sendInteraction("keypress", event, { key: "Enter" });
-                      }
-                  }
-  
-                  document.addEventListener("click", handleClick);
-                  document.addEventListener("input", handleInput);
-                  document.addEventListener("blur", handleBlur, true);
-                  document.addEventListener("keydown", handleKeydown);
-              });
-          }
-  
-          // Inject listeners immediately
-          await injectListeners();
-  
-          // Listen for page navigations and reinject listeners
-          page.on("framenavigated", async (frame) => {
-              if (frame === page.mainFrame()) {
-                  const newURL = frame.url();
-                  console.log(`🌍 Page navigation detected! New URL: ${newURL}`);
-  
-                  // Store navigation event
-                  const navigationInteraction = {
-                      type: "navigation",
-                      url: newURL,
-                  };
-  
-                  activeBrowsers[userId].interactions.push(navigationInteraction);
-  
-                  // Emit to frontend
-                  socket.emit("interactionRecorded", activeBrowsers[userId].interactions);
-  
-                  // Re-inject listeners after navigation
-                  await injectListeners();
+        const { page } = activeBrowsers[userId];
+    
+        // Expose function so frontend can send interactions
+        await page.exposeFunction("sendInteractionToBackend", (data) => {
+          console.log("📝 Interaction detected in Puppeteer:", data);
+          activeBrowsers[userId].interactions.push(data);
+          socket.emit("interactionRecorded", activeBrowsers[userId].interactions);
+        });
+    
+        // Function to inject listeners
+        async function injectListeners() {
+          await page.evaluate(() => {
+            function getXPath(element) {
+              console.log("elemenst",element)
+              if (element.id) return `//*[@id="${element.id}"]`;
+            
+              if (element.name) return `//input[@name="${element.name}"]`;
+              if (element.placeholder) return `//input[@placeholder="${element.placeholder}"]`;
+              if (element.getAttribute("aria-label")) return `//*[@aria-label="${element.getAttribute("aria-label")}"]`;
+            
+              if (element.tagName === "BUTTON" || element.tagName === "A") {
+                let buttonText = element.innerText.trim();
+                if (buttonText.length > 0) return `//${element.tagName.toLowerCase()}[text()="${buttonText}"]`;
               }
+            
+              const parts = [];
+              while (element && element.nodeType === Node.ELEMENT_NODE) {
+                let index = 1;
+                let sibling = element.previousElementSibling;
+                while (sibling) {
+                  if (sibling.tagName === element.tagName) index++;
+                  sibling = sibling.previousElementSibling;
+                }
+                parts.unshift(`${element.tagName.toLowerCase()}[${index}]`);
+                element = element.parentNode;
+              }
+              return parts.length ? "/" + parts.join("/") : null;
+            }
+        
+            function sendInteraction(type, event, extraData = {}) {
+              const xpath = getXPath(event.target);
+              if (!xpath) return;
+              window.sendInteractionToBackend({ type, tag: event.target.tagName, xpath, ...extraData });
+            }
+        
+            // Remove existing event listeners before adding new ones
+            document.removeEventListener("click", handleClick);
+            document.removeEventListener("input", handleInput);
+            document.removeEventListener("keydown", handleKeydown);
+            document.removeEventListener("blur", handleBlur, true);
+        
+            function handleClick(event) {
+              if (event.detail > 1) return; // Ignore extra clicks
+              sendInteraction("click", event);
+            }
+        
+            let inputState = {};
+        
+            function handleInput(event) {
+              const xpath = getXPath(event.target);
+              const newValue = event.target.value;
+              if (inputState[xpath] !== newValue) {
+                inputState[xpath] = newValue;
+              }
+            }
+        
+            function handleBlur(event) {
+              const xpath = getXPath(event.target);
+              if (inputState[xpath] !== undefined) {
+                sendInteraction("input", event, { value: inputState[xpath] });
+                delete inputState[xpath];
+              }
+            }
+        
+            function handleKeydown(event) {
+              if (event.key === "Enter") {
+                const xpath = getXPath(event.target);
+                if (inputState[xpath] !== undefined) {
+                  sendInteraction("input", event, { value: inputState[xpath] });
+                  delete inputState[xpath];
+                }
+                sendInteraction("keypress", event, { key: "Enter" });
+              }
+            }
+        
+            document.addEventListener("click", handleClick);
+            document.addEventListener("input", handleInput);
+            document.addEventListener("blur", handleBlur, true);
+            document.addEventListener("keydown", handleKeydown);
           });
-  
-          socket.emit("recordingStarted");
-          console.log("✅ Recording started for user:", userId);
+        }
+        
+        
+        // Inject listeners initially
+        await injectListeners();
+    
+        // Listen for page navigations and reinject listeners
+        page.on("framenavigated", async (frame) => {
+          if (frame === page.mainFrame()) {
+            const newURL = frame.url();
+            console.log(`🌍 Page navigation detected! New URL: ${newURL}`);
+        
+            // Store navigation event
+            const navigationInteraction = {
+              type: "navigation",
+              url: newURL,
+            };
+            
+            activeBrowsers[userId].interactions.push(navigationInteraction);
+            
+            // Emit to frontend
+            socket.emit("interactionRecorded", activeBrowsers[userId].interactions);
+        
+            // Re-inject listeners after navigation
+            await injectListeners();
+          }
+        });
+        
+    
+        socket.emit("recordingStarted");
+        console.log("✅ Recording started for user:", userId);
       } catch (error) {
-          console.error("❌ Error starting recording:", error);
-          socket.emit("recordingError", "Failed to start recording.");
+        console.error("❌ Error starting recording:", error);
+        socket.emit("recordingError", "Failed to start recording.");
       }
-  });
+    });
+
+    socket.on("stopRecording", async ({ userId }) => {
+      if (!activeBrowsers[userId]) {
+        return socket.emit("recordingError", "No active session.");
+      }
+
+      try {
+        const recordedInteractions = activeBrowsers[userId].interactions;
+        socket.emit("recordingStopped", { interactions: recordedInteractions });
+        console.log("⏹ Recording stopped for user:", userId);
+      } catch (error) {
+        console.error("Error stopping recording:", error);
+        socket.emit("recordingError", "Failed to stop recording.");
+      }
+    });
 
     socket.on("interactionFromFrontend", async ({ userId, action }) => {
       if (!activeBrowsers[userId]) {
@@ -262,21 +283,6 @@ module.exports = (server) => {
         
       } catch (error) {
         console.error("❌ Error performing action in Puppeteer:", error);
-      }
-    });
-
-    socket.on("stopRecording", async ({ userId }) => {
-      if (!activeBrowsers[userId]) {
-        return socket.emit("recordingError", "No active session.");
-      }
-
-      try {
-        const recordedInteractions = activeBrowsers[userId].interactions;
-        socket.emit("recordingStopped", { interactions: recordedInteractions });
-        console.log("⏹ Recording stopped for user:", userId);
-      } catch (error) {
-        console.error("Error stopping recording:", error);
-        socket.emit("recordingError", "Failed to stop recording.");
       }
     });
     
