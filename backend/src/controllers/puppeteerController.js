@@ -167,6 +167,19 @@ module.exports = (server) => {
           if (frame === page.mainFrame()) {
             const newURL = frame.url();
             console.log(`🌍 Page navigation detected! New URL: ${newURL}`);
+        
+            // Store navigation event
+            const navigationInteraction = {
+              type: "navigation",
+              url: newURL,
+            };
+            
+            activeBrowsers[userId].interactions.push(navigationInteraction);
+            
+            // Emit to frontend
+            socket.emit("interactionRecorded", activeBrowsers[userId].interactions);
+        
+            // Re-inject listeners after navigation
             await injectListeners();
           }
         });
