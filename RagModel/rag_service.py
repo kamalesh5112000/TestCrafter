@@ -13,7 +13,7 @@ import torch
 
 # Hugging Face API details (Replace with your token)
 HUGGINGFACE_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
-HUGGINGFACE_API_KEY = "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"
+HUGGINGFACE_API_KEY = "#####"
 
 HEADERS = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
 
