@@ -9,11 +9,17 @@ from typing import List
 from pymongo import MongoClient
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
+import re
 
 
 # Hugging Face API details (Replace with your token)
 HUGGINGFACE_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
-HUGGINGFACE_API_KEY = "#####"
+HUGGINGFACE_API_KEY = "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"
+
+HUGGINGFACE_LLAMA_URL = "https://router.huggingface.co/hf-inference/models/google/flan-t5-large"
+HUGGINGFACE_GPT2_URL = "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct"
+HUGGINGFACE_GEMINI_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
+
 
 HEADERS = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
 
@@ -100,6 +106,50 @@ def load_requirement_document():
             return file.read().strip()
     except FileNotFoundError:
         return "No requirement document found."
+# ------------------ CHAIN OF PROMPTING ------------------ #
+def extract_field_name(xpath):
+    if not isinstance(xpath, str):
+        return "Unknown"
+
+    name_match = re.search(r"@name=['\"]([^'\"]+)['\"]", xpath)
+    text_match = re.search(r"text\(\)=['\"]([^'\"]+)['\"]", xpath)
+
+    if name_match:
+        return name_match.group(1).capitalize()
+    elif text_match:
+        return text_match.group(1)
+    
+    return "Unknown"
+
+def refine_prompt_with_chain(flow):
+    """
+    Implements Chain-of-Thought (CoT) prompting to refine test steps.
+    """
+
+    if not isinstance(flow, list):
+        raise ValueError("Expected 'flow' to be a list of steps")
+
+    context = "You are a QA engineer. Convert the following user actions into structured test steps:\n"
+    
+    for step in flow:
+        if not isinstance(step, dict):
+            continue  # Skip invalid entries
+
+        xpath = step.get("xpath", "")
+        field_name = extract_field_name(xpath)
+        action_type = step.get("type", "").lower()
+        value = step.get("value", "")
+
+        if action_type == "click":
+            context += f"- Click on the \"{field_name}\" field.\n"
+        elif action_type == "input" and value:
+            context += f"- Enter '{value}' in the \"{field_name}\" field.\n"
+        else:
+            context += f"- Perform '{action_type}' on the \"{field_name}\" field.\n"
+
+    context += "\nRefine these steps and make them more readable for testing."
+
+    return context
 
 # ------------------ CONVERT FLOW TO TEST STEPS ------------------ #
 @app.post("/convert_flow")
@@ -111,33 +161,55 @@ def convert_flow(flow_data: FeatureFlow):
     flow = flow_data.flow
 
     # Format the flow into structured input (raw step-by-step actions)
-    formatted_flow = "\n".join([
-        f"Click on the {step.get('tag', 'Unknown')} field." if step['type'] == 'click' else
-        f"Enter '{step['value']}' in the {step.get('tag', 'Unknown')} field." if step['type'] == 'input' else
-        f"Navigate to {step['url']}." if step['type'] == 'navigation' else
-        "Unknown action."
-        for step in flow
-    ])
-
-    # Replace generic 'INPUT' with more descriptive field names if available
-    formatted_flow = formatted_flow.replace('INPUT', 'input field')  # Generic replacement
-    formatted_flow = formatted_flow.replace('BUTTON', 'button')  # Generic replacement
-
-    print("Formatted Flow Input:\n", formatted_flow)  # Debugging purposes
+    formatted_flow = refine_prompt_with_chain(flow)
 
     try:
-        generated_text = generate_text(formatted_flow)  # Model generates the test steps
-        return {"test_steps": generated_text.split("\n")}  # Return structured list of steps
+        llama_response = query_huggingface(HUGGINGFACE_LLAMA_URL, formatted_flow)
+        gpt2_response = query_huggingface(HUGGINGFACE_GPT2_URL, formatted_flow)
+        gemini_response = query_huggingface(HUGGINGFACE_GEMINI_URL, formatted_flow)
+
+        return {
+            "LLaMA-3.1-8B": llama_response,
+            "GPT-2": gpt2_response,
+            "Gemini": gemini_response
+        }
     except Exception as e:
         print("Error:", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 # ------------------ CALL HUGGING FACE API ------------------ #
+def query_huggingface(model_url, input_text):
+    """
+    Query Hugging Face API models (LLaMA-3.1-8B, GPT-2, Gemini).
+    """
+    payload = {
+        "inputs": input_text,
+        "parameters": {
+            "max_length": 512,  # Increase output length
+            "temperature": 0.7,  # Add variation
+            "top_p": 0.9,        # Improve response quality
+        }
+    }
+    print("API Request:",model_url, HEADERS, payload)
+    response = requests.post(model_url, headers=HEADERS, json=payload)
+    
+    if response.status_code == 200:
+        return response.json()[0]["generated_text"]
+    else:
+        return f"Error {response.status_code}: {response.text}"
+
 def generate_text(input_text: str):
     """
     Generate structured test steps using Mistral-7B-Instruct via Hugging Face API.
     """
-    payload = {"inputs": input_text}
+    payload = {
+        "inputs": input_text,
+        "parameters": {
+            "max_length": 512,  # Increase output length
+            "temperature": 0.7,  # Add variation
+            "top_p": 0.9,        # Improve response quality
+        }
+    }
     print(HUGGINGFACE_API_URL, HEADERS, payload)
     response = requests.post(HUGGINGFACE_API_URL, headers=HEADERS, json=payload)
 

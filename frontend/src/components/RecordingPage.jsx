@@ -21,39 +21,48 @@ const [messageType, setMessageType] = useState("");
 
     
     
-    socket.on("interactionRecorded", (interactionList) => {
-      console.log("📥 [FRONTEND] Received recorded interactions:", interactionList);
+    socket.on("interactionRecorded", (interaction) => {
+      console.log("📥 [FRONTEND] Received recorded interaction:", interaction);
     
       setActions((prevActions) => {
         const updatedActions = [...prevActions];
+        const lastAction = updatedActions[updatedActions.length - 1];
     
-        interactionList.forEach((interaction) => {
-          const lastAction = updatedActions[updatedActions.length - 1];
+        console.log("LastAction:", lastAction);
+        console.log("Current Action:", interaction);
     
-          // 🛑 Always keep navigation events, preventing consecutive duplicates
-          if (interaction.type === "navigation") {
-            if (!lastAction || lastAction.type !== "navigation") {
-              updatedActions.push(interaction);
-            }
-          }
-          // ✅ If the new action is identical to the last one (excluding navigation), update it
-          else if (
-            lastAction &&
-            lastAction.type === interaction.type &&
-            lastAction.tag === interaction.tag &&
-            lastAction.xpath === interaction.xpath
+        if (interaction.type === "navigation") {
+          if (
+            !lastAction ||
+            lastAction.type !== "navigation" ||
+            lastAction.url !== interaction.url
           ) {
-            updatedActions[updatedActions.length - 1] = interaction; // Update last entry
-          }
-          // ➕ Otherwise, add it as a new action (only if it's not in the removed actions list)
-          else if (!prevActions.some((action) => action.xpath === interaction.xpath && action.type === interaction.type)) {
+            console.log("Action pushed in Navigation", interaction);
             updatedActions.push(interaction);
           }
-        });
+        } else if (
+          lastAction &&
+          lastAction.type === interaction.type &&
+          lastAction.tag === interaction.tag &&
+          lastAction.xpath === interaction.xpath
+        ) {
+          console.log("Action updated", interaction);
+          updatedActions[updatedActions.length - 1] = interaction;
+        } else if (
+          !updatedActions.some(
+            (action) =>
+              action.xpath === interaction.xpath &&
+              action.type === interaction.type
+          )
+        ) {
+          console.log("Action pushed as new", interaction);
+          updatedActions.push(interaction);
+        }
     
         return updatedActions;
       });
     });
+    
     
 
 

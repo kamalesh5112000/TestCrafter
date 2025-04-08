@@ -30,7 +30,7 @@ exports.generateAllSteps = (req, res) => {
         });
 
         // Extract generated test steps
-        const testSteps = response.data.test_steps;
+        const testSteps = response.data;
         console.log("TestSteps:",testSteps)
 
         return res.json({

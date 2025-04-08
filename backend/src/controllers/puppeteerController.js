@@ -77,7 +77,7 @@ module.exports = (server) => {
           await page.exposeFunction("sendInteractionToBackend", (data) => {
               console.log("📝 Interaction detected in Puppeteer:", data);
               activeBrowsers[userId].interactions.push(data);
-              socket.emit("interactionRecorded", activeBrowsers[userId].interactions);
+              socket.emit("interactionRecorded", data);
           });
   
           // Function to inject listeners
@@ -177,7 +177,7 @@ module.exports = (server) => {
                   activeBrowsers[userId].interactions.push(navigationInteraction);
   
                   // Emit to frontend
-                  socket.emit("interactionRecorded", activeBrowsers[userId].interactions);
+                  socket.emit("interactionRecorded", navigationInteraction);
   
                   // Re-inject listeners after navigation
                   await injectListeners();
@@ -263,7 +263,7 @@ module.exports = (server) => {
     
         // Store recorded interaction
         activeBrowsers[userId].interactions.push(action);
-        socket.emit("interactionRecorded", activeBrowsers[userId].interactions);
+        socket.emit("interactionRecorded", action);
         
       } catch (error) {
         console.error("❌ Error performing action in Puppeteer:", error);
