@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const TestCaseSchema = new mongoose.Schema({
   featureId: { type: mongoose.Schema.Types.ObjectId, ref: "Feature", required: true },
   testCaseName: { type: String, required: true },
+  testSteps: { type: String },
   recordedBy: { type: String, required: true },  // User-provided name
   actions: [
     {

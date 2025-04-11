@@ -14,11 +14,7 @@ import re
 
 # Hugging Face API details (Replace with your token)
 HUGGINGFACE_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
-HUGGINGFACE_API_KEY = "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"
-
-HUGGINGFACE_LLAMA_URL = "https://router.huggingface.co/hf-inference/models/google/flan-t5-large"
-HUGGINGFACE_GPT2_URL = "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct"
-HUGGINGFACE_GEMINI_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
+HUGGINGFACE_API_KEY = "######"
 
 
 HEADERS = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
@@ -164,15 +160,11 @@ def convert_flow(flow_data: FeatureFlow):
     formatted_flow = refine_prompt_with_chain(flow)
 
     try:
-        llama_response = query_huggingface(HUGGINGFACE_LLAMA_URL, formatted_flow)
-        gpt2_response = query_huggingface(HUGGINGFACE_GPT2_URL, formatted_flow)
-        gemini_response = query_huggingface(HUGGINGFACE_GEMINI_URL, formatted_flow)
+        response = query_huggingface(HUGGINGFACE_API_URL, formatted_flow)
+        cleaned_response = response.replace(formatted_flow.strip(), "").strip()
+        
 
-        return {
-            "LLaMA-3.1-8B": llama_response,
-            "GPT-2": gpt2_response,
-            "Gemini": gemini_response
-        }
+        return cleaned_response
     except Exception as e:
         print("Error:", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -186,8 +178,8 @@ def query_huggingface(model_url, input_text):
         "inputs": input_text,
         "parameters": {
             "max_length": 512,  # Increase output length
-            "temperature": 0.7,  # Add variation
-            "top_p": 0.9,        # Improve response quality
+            "temperature": 0.1,  # Add variation
+            "top_p": 0.8,        # Improve response quality
         }
     }
     print("API Request:",model_url, HEADERS, payload)
@@ -198,25 +190,6 @@ def query_huggingface(model_url, input_text):
     else:
         return f"Error {response.status_code}: {response.text}"
 
-def generate_text(input_text: str):
-    """
-    Generate structured test steps using Mistral-7B-Instruct via Hugging Face API.
-    """
-    payload = {
-        "inputs": input_text,
-        "parameters": {
-            "max_length": 512,  # Increase output length
-            "temperature": 0.7,  # Add variation
-            "top_p": 0.9,        # Improve response quality
-        }
-    }
-    print(HUGGINGFACE_API_URL, HEADERS, payload)
-    response = requests.post(HUGGINGFACE_API_URL, headers=HEADERS, json=payload)
-
-    if response.status_code == 200:
-        return response.json()[0]["generated_text"]
-    else:
-        raise Exception(f"Error: {response.status_code}, {response.text}")
 
 
 # ------------------ RUN FASTAPI ------------------ #

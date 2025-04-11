@@ -68,6 +68,7 @@ exports.fetchTestCases = async (req, res) => {
       const cases = await TestCase.find({ featureId: feature._id });
 
       testCases[feature.featureName] = cases.map(testCase => ({
+        testCaseId:testCase._id,
         testCaseName: testCase.testCaseName,
         recordedBy: testCase.recordedBy,
         actions: testCase.actions
@@ -81,3 +82,28 @@ exports.fetchTestCases = async (req, res) => {
     res.status(500).json({ message: "Server error." });
   }
 };
+
+exports.saveTestSteps = async (req, res) => {
+  try {
+    const { testCaseId, testSteps } = req.body;
+
+    if (!testCaseId || !testSteps) {
+      return res.status(400).json({ message: "Missing required fields." });
+    }
+
+    const testCase = await TestCase.findByIdAndUpdate(
+      testCaseId,
+      { $set: { testSteps } },
+      { new: true }
+    );
+    console.log("testCase",testCase)
+
+    if (!testCase) return res.status(404).json({ message: "Test case not found." });
+
+    res.status(200).json({ message: "Test steps saved successfully.", data: testCase });
+  } catch (error) {
+    console.error("Error saving test steps:", error);
+    res.status(500).json({ message: "Server error." });
+  }
+};
+
